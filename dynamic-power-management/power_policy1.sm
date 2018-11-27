@@ -1,0 +1,122 @@
+// Simple dynamic power management (DPM) model
+// Based on:
+// Qinru Qiu, Qing Wu and Massoud Pedram
+// Stochastic modeling of a power-managed system: Construction and optimization
+// Proc. International Symposium on Low Power Electronics and Design, pages 194--199, ACM Press, 1999
+
+ctmc
+
+//-----------------------------------------------------
+
+// Service Queue (SQ)
+// Stores requests which arrive into the system to be processed.
+
+// Maximum queue size
+const int q_max = 20;
+
+// Request arrival rate
+const double rate_arrive = 1/0.72; // (mean inter-arrival time is 0.72 seconds)
+
+module SQ
+	
+	// q = number of requests currently in queue
+	q : [0..q_max] init 0;
+	
+	// A request arrives
+	[request] true -> rate_arrive : (q'=min(q+1,q_max));
+	// A request is served
+	[serve] q>1 -> (q'=q-1);
+	// Last request is served
+	[serve_last] q=1 -> (q'=q-1);
+	
+endmodule
+
+//-----------------------------------------------------
+
+// Service Provider (SP)
+// Processes requests from service queue.
+// The SP has 3 power states: sleep, idle and busy
+
+// Rate of service (average service time = 0.008s)
+const double rate_serve = 1/0.008; 
+// Rate of switching from sleep to idle (average transition time = 1.6s)
+const double rate_s2i = 1/1.6;
+// Rate of switching from idle to sleep (average transition time = 0.67s)
+const double rate_i2s = 1/0.67;
+
+module SP
+	
+	// Power state of SP: 0=sleep, 1=idle, 2=busy
+	sp : [0..2] init 0;
+	
+	// Respond to controls from power manager (PM):
+	
+	// Switch from sleep state to idle state
+	// (in fact, if the queue is non-empty, go straight to "busy" , rather than "idle")
+	[sleep2idle] sp=0 & q=0 -> rate_s2i : (sp'=1);
+	[sleep2idle] sp=0 & q>0 -> rate_s2i : (sp'=2);
+	// Switch from idle state to sleep state
+	[idle2sleep] sp=1 -> rate_i2s : (sp'=0);
+	
+	// Synchronise with service queue (SQ):
+	
+	// If in the idle state, switch to busy when a request arrives in the queue
+	[request] sp=1  -> (sp'=2);
+	// If in other power states when a request arrives, do nothing
+	// (need to add this explicitly because otherwise SP blocks SQ from moving)
+	[request] sp!=1 -> (sp'=sp);
+	
+	// Serve a request from the queue
+	[serve]      sp=2 -> rate_serve : (sp'=2);
+	[serve_last] sp=2 -> rate_serve : (sp'=1); 
+	
+endmodule
+
+//-----------------------------------------------------
+
+// Power Manager (PM)
+// Controls power state of service provider
+// (this is done via synchronisation on idle2sleep/sleep2idle actions)
+
+// Probability of ordering the SP to sleep when queue empty
+const double p_sleep;
+
+module PM
+	
+	// i2s: true when idle2sleep command should be issued
+	i2s : bool init false;
+	
+	// idle to sleep command triggered by request arrivals/services
+	//  decide to perform command when queue becomes empty with probability p_sleep
+	[serve_last] true -> p_sleep : (i2s'=true) + 1-p_sleep : (i2s'=false);
+	// cancel idle to sleep command if a reqest arrives
+	[request] true -> (i2s'=false);
+	
+	// Send idle2sleep command to SP
+	[idle2sleep] i2s -> (i2s'=false);
+	
+	// Send sleep2idle command to SP (when queue is full)
+	[sleep2idle] q=q_max -> true;
+	
+endmodule
+
+//-----------------------------------------------------
+
+// Reward structures
+
+rewards "queue_size"
+	true : q;
+endrewards
+
+rewards "lost"
+	[request] q=q_max : 1;
+endrewards
+
+rewards "energy"
+	sp=0 : 0.13;
+	sp=1 : 0.95;
+	sp=2 : 2.15;
+	[sleep2idle] true : 7;
+	[idle2sleep] true : 0.067;
+endrewards
+
