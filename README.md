@@ -2,14 +2,14 @@
 
 Analysing and modelling probabilistic systems with PRISM
 
-## concurrent-philosophers
+### concurrent-philosophers
 Markov decision processes
 
-## dynamic-power-management
+### dynamic-power-management
 Continuous-time Markov chains
 
-## EGL-contract-signing
+### EGL-contract-signing
 Discrete-time Markov chains
 
-## self-stabilisation-and-die-algorithms
+### self-stabilisation-and-die-algorithms
 Probabilistic automata
